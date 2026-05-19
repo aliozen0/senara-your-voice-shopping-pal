@@ -12,4 +12,17 @@ export default defineConfig({
   tanstackStart: {
     server: { entry: "server" },
   },
+  vite: {
+    ssr: {
+      external: ["playwright", "playwright-core", "chromium-bidi"],
+    },
+    optimizeDeps: {
+      exclude: ["playwright", "playwright-core", "chromium-bidi"],
+    },
+    build: {
+      rollupOptions: {
+        external: ["playwright", "playwright-core", "chromium-bidi"],
+      },
+    },
+  },
 });

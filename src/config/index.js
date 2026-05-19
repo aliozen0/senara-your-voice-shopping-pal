@@ -11,7 +11,7 @@ export const SPEECH_LANG = "tr-TR";
 
 export const TIMEOUTS = {
   listeningMs: 10000,
-  responseMs: 15000,
+  responseMs: 60000,
 };
 
 export const STORAGE_KEYS = {

@@ -6,6 +6,7 @@ import {
   getSearchService,
 } from "../services/ServiceFactory.js";
 import { MockSearchService } from "../services/search/MockSearchService.js";
+import { WardrobeService } from "../services/wardrobe/WardrobeService.js";
 import { STRINGS } from "../config/index.js";
 
 /**
@@ -108,15 +109,63 @@ export function useVoiceAssistant() {
       const lower = text.toLowerCase();
 
       // Sipariş onayı
-      if (phase === "comparing" && /\b(al|alıyorum|sipariş|onayla|tamam)\b/.test(lower)) {
+      if (phase === "comparing" && /\b(al|alıyorum|sipariş|onayla|tamam|satın)\b/.test(lower)) {
         setPhase("ordering");
-        say(`En uygun mağazaya yönlendiriyorum, sepete ekleniyor...`, false);
+        // En ucuz ürünün URL'sini aç
+        const cheapest = [...priceResults].sort((a, b) => a.price - b.price)[0];
+        if (cheapest?.productUrl) {
+          window.open(cheapest.productUrl, "_blank");
+          say(`En uygun ürünün sayfasını yeni sekmede açtım. Sepete eklemeniz için sizi yönlendirdim. İyi alışverişler!`, false);
+        } else if (selectedProduct?.productUrl) {
+          window.open(selectedProduct.productUrl, "_blank");
+          say(`Ürün sayfasını yeni sekmede açtım. İyi alışverişler!`, false);
+        } else {
+          say(`Maalesef ürün sayfasını bulamadım. Başka bir şey yapmak ister misiniz?`, true);
+        }
         return;
       }
 
       // Fiyat karşılaştırma isteği
       if (phase === "product_detail" && /(fiyat|karşılaştır|ucuz)/.test(lower)) {
         await runCompare(selectedProduct);
+        return;
+      }
+
+      // Uygunluk Koçu (Fit Coach)
+      if (phase === "product_detail" && /(uyar mı|olur mu|bedenim|yakışır|koçu)/.test(lower)) {
+        const profile = getUserProfile();
+        say("Hemen ölçülerinizi ve kalıbı kontrol ediyorum...", false);
+        const fitAdvice = await ai.checkFit(selectedProduct.name, profile);
+        say(fitAdvice + " Başka bir işlem yapmak ister misiniz?", true);
+        return;
+      }
+
+      // ── DOLAP HAFIZASI ──
+      // Dolaba ekle
+      if (/(dolabıma ekle|dolaba ekle|gardıroba ekle|kaydet)/.test(lower) && selectedProduct) {
+        const added = WardrobeService.add(selectedProduct);
+        if (added) {
+          say(`${selectedProduct.name.substring(0, 50)} dolabınıza eklendi! Başka bir şey yapmak ister misiniz?`, true);
+        } else {
+          say("Bu ürün zaten dolabınızda kayıtlı.", true);
+        }
+        return;
+      }
+
+      // Dolabımda ne var?
+      if (/(dolabımda ne var|dolabım|gardırobum|dolabı göster|neler var)/.test(lower)) {
+        const summary = WardrobeService.buildWardrobeSummary();
+        say(summary, true);
+        return;
+      }
+
+      // Kombin önerisi
+      if (/(ne giyebilirim|kombin|kombini|ne yakışır|nasıl kombinlerim)/.test(lower)) {
+        const wardrobeContext = WardrobeService.buildWardrobeContext();
+        const productName = selectedProduct?.name || "genel kıyafet";
+        say("Dolabınızı kontrol edip kombin önerisi hazırlıyorum...", false);
+        const suggestion = await ai.suggestOutfit(productName, wardrobeContext);
+        say(suggestion, true);
         return;
       }
 
@@ -186,20 +235,23 @@ export function useVoiceAssistant() {
       if (!product) return;
       try {
         setPhase("comparing");
-        say(STRINGS.comparing, false);
-        const results = await search.comparePrice(product.name);
+        say("Trendyol'da benzer ürünleri tarıyorum, en uygun fiyatları buluyorum...", false);
+        const results = await search.comparePrice(product);
         setPriceResults(results);
-        const cheapest = results
-          .map((r) => ({ ...r, total: r.price + r.shipping }))
-          .sort((a, b) => a.total - b.total)[0];
-        const text =
-          results
-            .map(
-              (r) =>
-                `${r.store} ${r.price} TL, kargo ${r.shipping === 0 ? "ücretsiz" : r.shipping + " TL"}.`,
-            )
-            .join(" ") +
-          ` En ucuzu ${cheapest.store}, toplam ${cheapest.total} TL. Almak ister misiniz? Al veya hayır deyin.`;
+        
+        if (!results.length || results[0].price === 0) {
+          say("Benzer ürün fiyatlarını bulamadım. Başka bir şey yapmak ister misiniz?", true);
+          return;
+        }
+        
+        const sorted = [...results].sort((a, b) => a.price - b.price);
+        const cheapest = sorted[0];
+        
+        let text = `${results.length} benzer ürün buldum. `;
+        results.forEach((r, i) => {
+          text += `${i + 1}. ${(r.name || "").substring(0, 40)}, ${r.price} TL. `;
+        });
+        text += `En uygunu ${cheapest.price} TL. Satın almak ister misiniz?`;
         say(text, true);
       } catch (e) {
         console.error(e);
@@ -307,31 +359,69 @@ export function useVoiceAssistant() {
 }
 
 function buildResultsSummary(list) {
-  const top = list.slice(0, 3);
-  const parts = top.map((p, i) => {
-    const ord = ["Birincisi", "İkincisi", "Üçüncüsü"][i];
-    return `${ord}: ${p.name}, ${capitalize(p.store)}, ${p.price} TL, ${p.rating} yıldız.`;
+  if (list.length === 0) return "Hiç ürün bulamadım.";
+  
+  // Group by categoryName
+  const grouped = {};
+  list.forEach((p, i) => {
+    const cat = p.categoryName || "Önerilenler";
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push({ ...p, globalIndex: i });
   });
-  return `${list.length} ürün buldum. ${parts.join(" ")} Detay için birinci, ikinci veya üçüncü deyin.`;
+
+  let text = `Sizin için ${list.length} ürün seçtim. `;
+  
+  Object.keys(grouped).forEach(cat => {
+     text += `${cat}, `;
+     grouped[cat].forEach((p, index) => {
+         // Determine global 1-based index (e.g. "Üçüncü seçenek:")
+         const ordinals = ["Birinci", "İkinci", "Üçüncü", "Dördüncü", "Beşinci", "Altıncı", "Yedinci", "Sekizinci"];
+         const globalWord = ordinals[p.globalIndex] || `${p.globalIndex + 1} inci`;
+         
+         const localWord = index === 0 ? "Birincisi:" : "İkincisi:";
+         text += `${localWord} ${p.name.substring(0, 60)}, ${p.price} TL. `;
+     });
+  });
+  
+  text += `Detaylarını incelemek istediğiniz ürünün numarasını, örneğin 'birinci' veya 'beşinci' şeklinde söyleyebilirsiniz.`;
+  return text;
 }
 
 function buildProductDetailSummary(product, imgDesc, review) {
   const reviewCount = product.reviewCount ?? 0;
-  return (
-    `${imgDesc} ${reviewCount} yorum var. ` +
-    `Olumlu: ${review.positive.join(", ")}. ` +
-    `Olumsuz: ${review.negative.join(", ")}. ` +
-    `Kumaş hissi: ${review.sensoryDesc} ${review.sizeAdvice} ` +
-    `Öneri skorum 10 üzerinden ${review.score}. ` +
-    `Fiyat karşılaştırması yapalım mı? Fiyat karşılaştır veya al deyin.`
-  );
+  
+  const positive = review.positive && review.positive.length > 0 ? review.positive[0] : "ürün güzel";
+  const negative = review.negative && review.negative.length > 0 ? review.negative[0] : "";
+  
+  let summary = `${imgDesc} ${reviewCount} değerlendirme var, puanı ${review.score}. `;
+  summary += `En çok "${positive}" denmiş. `;
+  if (negative) summary += `Fakat bazı kullanıcılar "${negative}" şeklinde şikayette bulunmuş. `;
+  
+  if (review.sensoryDesc) summary += `${review.sensoryDesc} `;
+  if (review.sizeAdvice) summary += `${review.sizeAdvice} `;
+  
+  summary += `Fiyat karşılaştırması yapalım mı yoksa 'bu bana uyar mı' diyerek beden analizi mi istersiniz?`;
+  return summary;
+}
+
+function getUserProfile() {
+  if (typeof window !== "undefined") {
+    const profile = localStorage.getItem("senara_profile");
+    if (profile) return JSON.parse(profile);
+  }
+  // Varsayılan ölçüler (kullanıcı kaydetmemişse)
+  return { height: 165, weight: 60, size: "M" };
 }
 
 function parseOrdinal(text) {
-  if (/birinci|1\.|bir$|ilk/.test(text)) return 0;
-  if (/ikinci|2\.|iki$/.test(text)) return 1;
-  if (/üçüncü|3\.|üç$/.test(text)) return 2;
-  if (/dördüncü|4\.|dört$/.test(text)) return 3;
+  // Türkçe konuşma tanıma bazen "ı" ve "i" harflerini karıştırır
+  const t = text.toLowerCase().replace(/ı/g, "i").replace(/İ/g, "i");
+  if (/birinci|1\.|1\b|bir$|ilk/.test(t)) return 0;
+  if (/ikinci|2\.|2\b|iki$/.test(t)) return 1;
+  if (/[uü][cç][uü]nc[uü]|3\.|3\b|[uü][cç]$/.test(t)) return 2;
+  if (/d[oö]rd[uü]nc[uü]|4\.|4\b|d[oö]rt$/.test(t)) return 3;
+  if (/be[sş]inci|5\.|5\b|be[sş]$/.test(t)) return 4;
+  if (/altinci|6\.|6\b|alti$/.test(t)) return 5;
   const m = text.match(/\b(\d+)\b/);
   if (m) return Number(m[1]) - 1;
   return null;

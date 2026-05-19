@@ -3,7 +3,7 @@ import { MockAIService } from "./ai/MockAIService.js";
 import { GeminiService } from "./ai/GeminiService.js";
 import { WebSpeechService } from "./speech/WebSpeechService.js";
 import { MockSearchService } from "./search/MockSearchService.js";
-import { ExtensionSearchService } from "./search/ExtensionSearchService.js";
+import { PlaywrightSearchService } from "./search/PlaywrightSearchService.js";
 
 let _ai, _speech, _search;
 
@@ -18,6 +18,6 @@ export const getSpeechService = () => {
 };
 
 export const getSearchService = () => {
-  if (!_search) _search = USE_MOCK ? new MockSearchService() : new ExtensionSearchService();
+  if (!_search) _search = USE_MOCK ? new MockSearchService() : new PlaywrightSearchService();
   return _search;
 };
