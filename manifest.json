@@ -9,12 +9,11 @@
   },
 
   "side_panel": {
-    "default_path": "index.html"
+    "default_path": "sidepanel.html"
   },
 
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
 
   "permissions": [
@@ -26,10 +25,7 @@
   ],
 
   "host_permissions": [
-    "https://www.trendyol.com/*",
-    "https://www.hepsiburada.com/*",
-    "https://www.n11.com/*",
-    "https://www.amazon.com.tr/*"
+    "<all_urls>"
   ],
 
   "content_scripts": [
@@ -57,13 +53,6 @@
       "matches": ["https://www.n11.com/*"],
       "js": ["content_scripts/n11.js"],
       "run_at": "document_idle"
-    }
-  ],
-
-  "web_accessible_resources": [
-    {
-      "resources": ["index.html"],
-      "matches": ["<all_urls>"]
     }
   ]
 }

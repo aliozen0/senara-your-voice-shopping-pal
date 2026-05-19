@@ -1,54 +1,54 @@
 /**
- * @fileoverview Senara Chrome Extension — Vite Build Konfigürasyonu
+ * @fileoverview Senara Chrome Extension — Vite Build
  *
- * Bu dosya content script'leri ve background service worker'ı
- * Chrome Extension uyumlu şekilde build etmek için kullanılır.
- *
- * Content script'ler ES module formatını desteklemez,
- * bu yüzden IIFE formatında build edilir.
- *
- * Kullanım:
- *   npm run build:extension
- *   veya
- *   vite build --config vite.config.extension.ts
- *
- * @module vite.config.extension
+ * Tüm extension bileşenlerini tek seferde build eder:
+ * - sidepanel.html + sidepanel.jsx (React side panel UI + Tailwind CSS)
+ * - background.js (service worker)
+ * - content_scripts/*.js (injector + site-specific)
  */
 
 import { defineConfig } from "vite";
 import { resolve } from "path";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  root: ".",
+  base: "./",
   build: {
     outDir: "dist",
-    emptyOutDir: false, // Ana build'in çıktısını silmesin
+    emptyOutDir: true,
     rollupOptions: {
       input: {
-        background: resolve(__dirname, "background.js"),
+        sidepanel: resolve(__dirname, "extension/sidepanel.html"),
+        // background.js Vite'dan geçmez — chrome.* API'leri tree-shake edilir!
+        // Build script'te doğrudan kopyalanır.
         injector: resolve(__dirname, "content_scripts/injector.js"),
-        trendyol_cs: resolve(__dirname, "content_scripts/trendyol.js"),
-        hepsiburada_cs: resolve(__dirname, "content_scripts/hepsiburada.js"),
-        n11_cs: resolve(__dirname, "content_scripts/n11.js"),
+        trendyol: resolve(__dirname, "content_scripts/trendyol.js"),
+        hepsiburada: resolve(__dirname, "content_scripts/hepsiburada.js"),
+        n11: resolve(__dirname, "content_scripts/n11.js"),
       },
       output: {
-        format: "iife", // Content script'ler module desteklemez
         entryFileNames: (chunkInfo) => {
-          // Content script'leri content_scripts/ alt klasörüne koy
-          if (chunkInfo.name.endsWith("_cs") || chunkInfo.name === "injector") {
-            const name = chunkInfo.name.replace("_cs", "");
-            return `content_scripts/${name}.js`;
+          const contentScripts = ["injector", "trendyol", "hepsiburada", "n11"];
+          if (contentScripts.includes(chunkInfo.name)) {
+            return `content_scripts/${chunkInfo.name}.js`;
           }
           return "[name].js";
         },
-        // IIFE'de code-splitting olmaz, her entry bağımsız bir bundle olur
-        inlineDynamicImports: false,
+        chunkFileNames: "assets/[name]-[hash].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
       },
     },
-    // Minify et ama sourcemap'leri debug için sakla
-    minify: "terser",
-    sourcemap: true,
+    minify: false,
+    sourcemap: false,
   },
-  // Extension ortamında process.env vs. yok, defineConfig ile enjekte et
+  resolve: {
+    alias: {
+      "@": resolve(__dirname, "src"),
+    },
+  },
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
   },

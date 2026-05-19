@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSpeech } from "./useSpeech.js";
 import { useConversation } from "./useConversation.js";
 import {
@@ -12,6 +12,18 @@ import { STRINGS } from "../config/index.js";
  * Ana orkestrasyon hook'u. Tüm phase geçişlerini yönetir.
  * phases: 'idle' | 'listening' | 'processing' | 'results' |
  *         'product_detail' | 'comparing' | 'ordering' | 'error'
+ *
+ * ── Erişilebilirlik: Eller-Serbest Mod ──
+ * Kullanıcı mikrofona bir kez bastığında "handsFree" modu aktive olur.
+ * Asistan konuşmasını DOĞAL olarak bitirdikten sonra otomatik olarak
+ * tekrar dinlemeye başlar.
+ *
+ * ── CANCEL GÜVENLİĞİ ──
+ * speechSynthesis.cancel() çağrıldığında Chrome onend event'ini tetikler.
+ * Bu, eller-serbest modda auto-listen callback'inin yanlışlıkla
+ * çalışmasına neden olur. suppressAutoListenRef bu durumu engeller:
+ * - Manuel iptal (mikrofona basma) → suppress=true → callback çalışmaz
+ * - Doğal bitiş (asistan konuşmasını tamamlar) → suppress=false → callback çalışır
  */
 export function useVoiceAssistant() {
   const ai = useRef(getAIService()).current;
@@ -27,20 +39,62 @@ export function useVoiceAssistant() {
   const [imageDescription, setImageDescription] = useState("");
   const [priceResults, setPriceResults] = useState([]);
   const [error, setError] = useState(null);
+  const [handsFree, setHandsFree] = useState(false);
 
+  const startListeningRef = useRef(null);
+
+  // ── CANCEL GÜVENLİĞİ ──
+  // true iken, konuşma bitişinde auto-listen tetiklenmez.
+  // Manuel iptal sırasında true yapılır, doğal bitişte false kalır.
+  const suppressAutoListenRef = useRef(false);
+
+  /**
+   * TÜM konuşmaları anında durdurur.
+   * Çağrılmadan önce suppressAutoListenRef.current = true yapılmalıdır,
+   * aksi halde onend callback'i auto-listen'ı tetikler.
+   */
+  const forceStopAllSpeech = useCallback(() => {
+    speech.stopSpeaking();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try { window.speechSynthesis.cancel(); } catch { /* noop */ }
+    }
+  }, [speech]);
+
+  /**
+   * Asistanın sesli konuşmasını başlatır.
+   * autoListen=true ise konuşma DOĞAL olarak bittikten sonra dinlemeye geçer.
+   */
   const say = useCallback(
-    (text, onEnd) => {
+    (text, autoListen = true) => {
       conv.addMessage("assistant", text);
-      speech.speak(text, onEnd);
+      speech.speak(text, () => {
+        // ── Konuşma bitti ──
+        // Manuel iptal mi yoksa doğal bitiş mi kontrol et
+        if (suppressAutoListenRef.current) {
+          // Manuel iptal: callback'i yut, flag'i sıfırla
+          suppressAutoListenRef.current = false;
+          return;
+        }
+        // Doğal bitiş: eller-serbest modda dinlemeye geç
+        if (autoListen && handsFree && startListeningRef.current) {
+          setTimeout(() => {
+            startListeningRef.current?.();
+          }, 500);
+        }
+      });
     },
-    [conv, speech],
+    [conv, speech, handsFree],
   );
 
   const handleError = useCallback(
     (msg = STRINGS.errorGeneric) => {
       setError(msg);
       setPhase("error");
-      say(msg);
+      // ── HATA SONRASI AUTO-LISTEN KAPALI ──
+      // autoListen=false: hata mesajı bittikten sonra tekrar dinlemeye
+      // başlamaz. Aksi halde hata → dinle → hata → dinle sonsuz döngüsü oluşur.
+      // Kullanıcının mikrofona tekrar basması gerekir.
+      say(msg, false);
     },
     [say],
   );
@@ -51,13 +105,12 @@ export function useVoiceAssistant() {
       conv.addMessage("user", text);
       setTranscript(text);
 
-      // Komut yorumlama: bağlama göre seçim/karşılaştırma/sipariş
       const lower = text.toLowerCase();
 
       // Sipariş onayı
       if (phase === "comparing" && /\b(al|alıyorum|sipariş|onayla|tamam)\b/.test(lower)) {
         setPhase("ordering");
-        say(`En uygun mağazaya yönlendiriyorum, sepete ekleniyor...`);
+        say(`En uygun mağazaya yönlendiriyorum, sepete ekleniyor...`, false);
         return;
       }
 
@@ -76,7 +129,7 @@ export function useVoiceAssistant() {
         }
       }
 
-      // Aksi halde yeni arama olarak yorumla
+      // Aksi halde yeni arama
       await runSearch(text);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -87,7 +140,7 @@ export function useVoiceAssistant() {
     async (text) => {
       try {
         setPhase("processing");
-        say(STRINGS.processing);
+        say(STRINGS.processing, false);
         const intent = await ai.parseIntent(text);
         const list = await search.searchProducts(intent.query, intent.filters);
         setProducts(list);
@@ -97,7 +150,7 @@ export function useVoiceAssistant() {
         }
         setPhase("results");
         const summary = buildResultsSummary(list);
-        say(summary);
+        say(summary, true);
       } catch (e) {
         console.error(e);
         handleError();
@@ -111,7 +164,7 @@ export function useVoiceAssistant() {
       try {
         setSelectedProduct(product);
         setPhase("product_detail");
-        say("Ürünü inceliyorum...");
+        say("Ürünü inceliyorum...", false);
         const [imgDesc, reviewSet] = await Promise.all([
           ai.analyzeImage(product.imageUrl),
           ai.analyzeReviews(MockSearchService.getMockReviews?.() ?? []),
@@ -119,7 +172,7 @@ export function useVoiceAssistant() {
         setImageDescription(imgDesc);
         setReviewAnalysis(reviewSet);
         const text = buildProductDetailSummary(product, imgDesc, reviewSet);
-        say(text);
+        say(text, true);
       } catch (e) {
         console.error(e);
         handleError();
@@ -133,7 +186,7 @@ export function useVoiceAssistant() {
       if (!product) return;
       try {
         setPhase("comparing");
-        say(STRINGS.comparing);
+        say(STRINGS.comparing, false);
         const results = await search.comparePrice(product.name);
         setPriceResults(results);
         const cheapest = results
@@ -146,8 +199,8 @@ export function useVoiceAssistant() {
                 `${r.store} ${r.price} TL, kargo ${r.shipping === 0 ? "ücretsiz" : r.shipping + " TL"}.`,
             )
             .join(" ") +
-          ` En ucuzu ${cheapest.store}, toplam ${cheapest.total} TL. Almak ister misiniz?`;
-        say(text);
+          ` En ucuzu ${cheapest.store}, toplam ${cheapest.total} TL. Almak ister misiniz? Al veya hayır deyin.`;
+        say(text, true);
       } catch (e) {
         console.error(e);
         handleError();
@@ -161,36 +214,61 @@ export function useVoiceAssistant() {
       handleError(STRINGS.errorBrowserUnsupported);
       return;
     }
-    speech.stopSpeaking();
+
+    // ── ÖNCE: Manuel iptal flag'ini kaldır ──
+    // Bu çağrı ya kullanıcıdan (toggleListening) ya da auto-listen'dan gelir.
+    // Eğer kullanıcıdan geldiyse suppress zaten true yapılmış olacak (toggleListening'de).
+    // Eğer auto-listen'dan geldiyse suppress false olacak (say callback'inden).
+    // Her iki durumda da konuşmayı durdurmamız lazım:
+    suppressAutoListenRef.current = true; // cancel'dan gelecek onend'i bastır
+    forceStopAllSpeech();
+
     setError(null);
     setPhase("listening");
     setTranscript("");
+
+    if (!handsFree) setHandsFree(true);
+
     speech.startListening(
       (text) => {
         if (!text) {
-          handleError(STRINGS.errorNoSpeech);
+          // Boş sonuç — sessizce hata göster, auto-listen yok
+          setError(STRINGS.errorNoSpeech);
+          setPhase("error");
+          say(STRINGS.errorNoSpeech, false);
           return;
         }
+        // Başarılı girdi — hata sayacını sıfırla
+        setError(null);
         handleUserInput(text);
       },
       (err) => {
-        console.error(err);
-        handleError(STRINGS.errorNoSpeech);
+        console.error("[Senara] Speech recognition error:", err);
+        // Hata — sessizce göster, döngü oluşturmadan
+        setError(STRINGS.errorNoSpeech);
+        setPhase("error");
+        say(STRINGS.errorNoSpeech, false);
       },
     );
-  }, [speech, handleError, handleUserInput]);
+  }, [speech, handleError, handleUserInput, handsFree, forceStopAllSpeech]);
+
+  useEffect(() => {
+    startListeningRef.current = startListening;
+  }, [startListening]);
 
   const toggleListening = useCallback(() => {
     if (speech.isListening) {
       speech.stopListening();
       setPhase("idle");
+      setHandsFree(false);
     } else {
       startListening();
     }
   }, [speech, startListening]);
 
   const reset = useCallback(() => {
-    speech.stopSpeaking();
+    suppressAutoListenRef.current = true;
+    forceStopAllSpeech();
     speech.stopListening();
     setPhase("idle");
     setTranscript("");
@@ -200,7 +278,8 @@ export function useVoiceAssistant() {
     setImageDescription("");
     setPriceResults([]);
     setError(null);
-  }, [speech]);
+    setHandsFree(false);
+  }, [speech, forceStopAllSpeech]);
 
   return {
     phase,
@@ -211,6 +290,7 @@ export function useVoiceAssistant() {
     imageDescription,
     priceResults,
     error,
+    handsFree,
     messages: conv.messages,
     isListening: speech.isListening,
     isSpeaking: speech.isSpeaking,
@@ -243,7 +323,7 @@ function buildProductDetailSummary(product, imgDesc, review) {
     `Olumsuz: ${review.negative.join(", ")}. ` +
     `Kumaş hissi: ${review.sensoryDesc} ${review.sizeAdvice} ` +
     `Öneri skorum 10 üzerinden ${review.score}. ` +
-    `Almak ister misiniz? Fiyat karşılaştırması yapalım mı?`
+    `Fiyat karşılaştırması yapalım mı? Fiyat karşılaştır veya al deyin.`
   );
 }
 

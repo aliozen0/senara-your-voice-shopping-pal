@@ -8,6 +8,14 @@ export function useSpeech() {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // SSR'da window yoktur; isSupported'ı client mount'tan sonra değerlendir.
+  // Sunucu tarafında true varsayarak hydration mismatch'i (butonun disabled
+  // kalması ve kırmızı yasak imleci) önlüyoruz.
+  const [isSupported, setIsSupported] = useState(true);
+  useEffect(() => {
+    setIsSupported(serviceRef.current.isSupported());
+  }, []);
+
   const startListening = useCallback((onResult, onError) => {
     setIsListening(true);
     serviceRef.current.startListening(
@@ -48,7 +56,7 @@ export function useSpeech() {
   return {
     isListening,
     isSpeaking,
-    isSupported: serviceRef.current.isSupported(),
+    isSupported,
     startListening,
     stopListening,
     speak,

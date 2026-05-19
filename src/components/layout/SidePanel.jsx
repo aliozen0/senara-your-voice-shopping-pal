@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useVoiceAssistant } from "../../hooks/useVoiceAssistant.js";
 import { VoiceButton } from "../voice/VoiceButton.jsx";
 import { VoiceStatus } from "../voice/VoiceStatus.jsx";
@@ -14,6 +14,28 @@ import { STRINGS } from "../../config/index.js";
 
 export function SidePanel() {
   const v = useVoiceAssistant();
+  const greetedRef = useRef(false);
+
+  // Sayfa açılınca sesli karşılama yap (bir kez).
+  // Kullanıcı mikrofona basarsa speechSynthesis.cancel() ile kesilir.
+  useEffect(() => {
+    if (!greetedRef.current && v.isSupported) {
+      greetedRef.current = true;
+      const timer = setTimeout(() => {
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+          window.speechSynthesis.cancel(); // önceki kalıntı varsa temizle
+          const utter = new SpeechSynthesisUtterance(
+            "Merhaba! Ben Senara, sesli alışveriş asistanınız. " +
+            "Mikrofona bir kez dokunun, sonra ne aradığınızı söyleyin."
+          );
+          utter.lang = "tr-TR";
+          utter.rate = 1.05;
+          window.speechSynthesis.speak(utter);
+        }
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [v.isSupported]);
 
   // Klavye kısayolu: Space/Enter
   useEffect(() => {
@@ -74,8 +96,30 @@ export function SidePanel() {
           disabled={!v.isSupported}
         />
         <VoiceStatus phase={v.phase} isSpeaking={v.isSpeaking} />
+
+        {/* Eller-serbest modu göstergesi */}
+        {v.handsFree && (
+          <p
+            className="flex items-center gap-2 text-sm font-medium text-[color:var(--primary)]"
+            aria-live="polite"
+          >
+            <span className="inline-block h-2 w-2 rounded-full bg-[color:var(--primary)] animate-mic-pulse" aria-hidden="true" />
+            Eller-serbest mod aktif — sesle devam edin
+          </p>
+        )}
+
         <p className="text-center text-base text-[color:var(--muted-foreground)]">
-          {v.phase === "idle" ? STRINGS.greeting : STRINGS.tapToStart}
+          {v.phase === "idle"
+            ? "Mikrofona dokunun veya boşluk tuşuna basın"
+            : v.phase === "listening"
+              ? "Sizi dinliyorum..."
+              : v.phase === "results"
+                ? "Birinci, ikinci veya üçüncü deyin"
+                : v.phase === "product_detail"
+                  ? "Fiyat karşılaştır veya al deyin"
+                  : v.phase === "comparing"
+                    ? "Al veya yeni arama yapın"
+                    : STRINGS.tapToStart}
         </p>
       </section>
 
