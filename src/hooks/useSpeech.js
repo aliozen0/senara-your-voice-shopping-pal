@@ -16,7 +16,7 @@ export function useSpeech() {
     setIsSupported(serviceRef.current.isSupported());
   }, []);
 
-  const startListening = useCallback((onResult, onError) => {
+  const startListening = useCallback((onResult, onError, onEnd) => {
     setIsListening(true);
     serviceRef.current.startListening(
       (text) => {
@@ -27,6 +27,10 @@ export function useSpeech() {
         setIsListening(false);
         onError?.(err);
       },
+      () => {
+        setIsListening(false);
+        onEnd?.();
+      }
     );
   }, []);
 

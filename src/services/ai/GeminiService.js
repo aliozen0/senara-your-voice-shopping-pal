@@ -1,24 +1,25 @@
 import { AIServiceInterface } from "./AIServiceInterface.js";
-import { IO_API_KEY } from "../../config/index.js";
+import { GEMINI_API_KEY } from "../../config/index.js";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 /**
- * io.net Intelligence API implementasyonu.
- * OpenAI-uyumlu chat completions endpoint kullanır.
- *
- * ── AGENTİK MİMARİ ──
- * - parseIntent: Kullanıcı cümlesinden arama sorgusu ve filtreler çıkarır (lokal)
- * - analyzeImage: Ürün görseli açıklaması (AI)
- * - analyzeReviews: Yorum analizi (AI)
- * - generateResponse: Genel konuşma (AI)
+ * Resmi Google Gemini API implementasyonu (@google/generative-ai).
  *
  * @implements {AIServiceInterface}
  */
 export class GeminiService extends AIServiceInterface {
-  constructor(apiKey = IO_API_KEY) {
+  constructor(apiKey = GEMINI_API_KEY) {
     super();
     this.apiKey = apiKey;
-    this.baseUrl = "https://api.intelligence.io.net/api/v1";
-    this.model = "meta-llama/Llama-3.3-70B-Instruct";
+    if (this.apiKey) {
+      this.genAI = new GoogleGenerativeAI(this.apiKey);
+    }
+  }
+
+  get model() {
+    if (!this.genAI) throw new Error("GEMINI_API_KEY tanımlı değil.");
+    // Metin ve analiz işlemleri için hızlı flash modeli
+    return this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
   }
 
   /**
@@ -30,10 +31,42 @@ export class GeminiService extends AIServiceInterface {
   }
 
   async analyzeImage(imageUrl) {
-    return this._chat(
-      "Sen görme engelli kullanıcılara yardım eden bir ürün açıklama asistanısın.",
-      `Bu ürün görselini kısa ve net Türkçe anlat (3-4 cümle): ${imageUrl}`,
-    );
+    const prompt = "Bu ürün görselini incele ve SADECE şu bilgileri içeren kısa, net bir sesli asistan cümlesi kur: renk, desen, üstündeki yazı veya logo, kesim tipi, kol boyu, yaka tipi ve kumaş dokusu. Örnek: 'Siyah pamuklu tişört, kısa kollu, yuvarlak yaka, göğüs üzerinde beyaz logo var.' Ekstra yorum yapma.";
+
+    try {
+      // Görseli indirip base64'e çevirmeyi dene (tarayıcı uyumlu)
+      const response = await fetch(imageUrl);
+      const arrayBuffer = await response.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64Image = btoa(binary);
+      
+      const result = await this.model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            data: base64Image,
+            mimeType: response.headers.get("content-type") || "image/jpeg"
+          }
+        }
+      ]);
+      return result.response.text();
+    } catch (fetchError) {
+      console.warn("[Senara AI] Görsel indirilemedi, URL ile deneniyor:", fetchError.message);
+      // Fallback: Görseli indiremezse sadece URL'yi ve ürün açıklamasını ver
+      try {
+        const result = await this.model.generateContent(
+          prompt + ` Ürün görseli şu URL'de: ${imageUrl}`
+        );
+        return result.response.text();
+      } catch (error) {
+        console.error("[Senara AI] Görsel analizi hatası:", error);
+        return "Ürün görselini şu an analiz edemiyorum.";
+      }
+    }
   }
 
   async analyzeReviews(reviews) {
@@ -49,16 +82,23 @@ export class GeminiService extends AIServiceInterface {
     const prompt = `Şu ürün yorumlarını analiz et ve JSON döndür:
 ${reviews.join("\n---\n")}
 
-Sadece JSON döndür, başka bir şey yazma.
-Format: {"positive": string[], "negative": string[], "sensoryDesc": string, "sizeAdvice": string, "score": number}`;
+Sadece JSON döndür, JSON işaretçileri (markdown) kullanma. Başka bir metin yazma.
+Format: {
+  "positive": ["en çok tekrar eden olumlu yorum"],
+  "negative": ["en çok tekrar eden şikayet"],
+  "sensoryDesc": "kumaş ve kalite hissi",
+  "sizeAdvice": "beden tavsiyesi (örn: kalıpları dar 1 beden büyük alın)",
+  "score": 4.5
+}`;
 
-    const text = await this._chat(
-      "Sen bir e-ticaret yorum analiz asistanısın. Sadece JSON döndür.",
-      prompt,
-    );
     try {
+      const result = await this.model.generateContent(prompt);
+      let text = result.response.text();
+      // Markdown json bloğu varsa temizle
+      text = text.replace(/```json/g, "").replace(/```/g, "").trim();
       return JSON.parse(extractJson(text));
-    } catch {
+    } catch (error) {
+      console.error("[Senara AI] Yorum analizi hatası:", error);
       return {
         positive: [],
         negative: [],
@@ -70,44 +110,73 @@ Format: {"positive": string[], "negative": string[], "sensoryDesc": string, "siz
   }
 
   async generateResponse(context, question) {
-    return this._chat(
-      "Sen Senara adında bir Türkçe sesli alışveriş asistanısın. Kısa ve doğal konuş.",
-      `Bağlam: ${JSON.stringify(context)}\nSoru: ${question}\nKısa, doğal Türkçe cevap ver.`,
-    );
+    const prompt = `Sen Senara adında bir Türkçe sesli alışveriş asistanısın. Kısa, samimi ve doğal konuş. Kullanıcı görme engelli olduğu için doğrudan ve net ol.
+Bağlam: ${JSON.stringify(context)}
+Soru: ${question}
+Kısa, doğal Türkçe cevap ver.`;
+
+    try {
+      const result = await this.model.generateContent(prompt);
+      return result.response.text();
+    } catch (error) {
+      console.error("[Senara AI] Cevap üretme hatası:", error);
+      return "Şu anda size yanıt veremiyorum.";
+    }
+  }
+
+  async checkFit(productDetails, userProfile) {
+    if (!userProfile) return "Beden ölçülerinizi henüz kaydetmemişsiniz. Lütfen boyunuzu ve kilonuzu belirtin.";
+    const prompt = `Senara adlı sesli alışveriş asistanısın. Kullanıcı şu kıyafeti almayı düşünüyor: "${productDetails}". 
+Kullanıcının ölçüleri: Boy ${userProfile.height} cm, Kilo ${userProfile.weight} kg, Normal Bedeni: ${userProfile.size}.
+Kısa, samimi ve net bir beden tavsiyesi ver. Sesli okunacağı için akıcı olsun. Örneğin: "Normalde M giyiyorsunuz ancak bu ürün dar kalıp olduğu için L almanızı öneririm."`;
+    try {
+      const result = await this.model.generateContent(prompt);
+      return result.response.text();
+    } catch (error) {
+      console.error("[Senara AI] Fit coach hatası:", error);
+      return "Uygunluk analizi yapılamadı.";
+    }
+  }
+
+  async suggestOutfit(currentProduct, wardrobeItems) {
+    if (!wardrobeItems || wardrobeItems.length === 0) {
+      return "Dolabınızda henüz kayıtlı kıyafet yok. Önce beğendiğiniz ürünleri 'dolabıma ekle' diyerek kaydedin.";
+    }
+    const prompt = `Senara adlı sesli alışveriş asistanısın. Kullanıcı şu ürünü inceliyor: "${currentProduct}".
+Dolabındaki kıyafetler: ${wardrobeItems}.
+Bu ürünle dolaptaki hangi parçaları kombinleyebileceğini kısa ve samimi bir şekilde öner. Sesli okunacağı için akıcı ve doğal bir Türkçe kullan. Maksimum 3 cümle.`;
+    try {
+      const result = await this.model.generateContent(prompt);
+      return result.response.text();
+    } catch (error) {
+      console.error("[Senara AI] Kombin önerisi hatası:", error);
+      return "Kombin önerisi oluşturulamadı.";
+    }
   }
 
   /**
-   * io.net OpenAI-uyumlu chat completions endpoint.
+   * Yeni ürünün dolaptaki kıyafetlerle renk/stil uyumunu analiz eder.
+   * selectProduct sırasında otomatik çağrılır.
    */
-  async _chat(systemPrompt, userMessage) {
-    if (!this.apiKey) throw new Error("IO_API_KEY tanımlı değil");
-
-    const url = `${this.baseUrl}/chat/completions`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage },
-        ],
-        temperature: 0.3,
-        max_tokens: 512,
-      }),
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text().catch(() => "");
-      console.error(`[Senara AI] io.net API hatası ${res.status}:`, errorText);
-      throw new Error(`AI API hatası: ${res.status}`);
+  async matchWithWardrobe(productName, wardrobeItems) {
+    if (!wardrobeItems || wardrobeItems.trim().length === 0 || wardrobeItems.includes("boş")) {
+      return "Dolabınızda benzer hiçbir ürün bulunmuyor. Gardırobunuzu zenginleştirmek için bu ürüne gerçekten ihtiyacınız olabilir!";
     }
+    const prompt = `Sen Senara adlı akıllı bir moda asistanısın. 
+Kullanıcı şu ürünü inceliyor: "${productName}".
+Dolabındaki mevcut kıyafetler: ${wardrobeItems}.
 
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content ?? "";
+Şunları yap:
+1. Bu yeni ürünün dolaptaki hangi kıyafetlerle RENK ve STİL açısından uyumlu olduğunu belirt (örn: "Mor ile beyaz harika gider, beyaz tişörtünle mükemmel olur").
+2. Dolabında eksik olan bir parça varsa onu öner. Eğer bu kategoriden hiç ürün yoksa "Dolabınızda bu üründen bulunmuyor, bu yüzden gerçekten ihtiyacınız olabilir!" diye belirt.
+3. Cevabın KISA ve SAMİMİ olsun (maksimum 3-4 cümle). Sesli okunacağı için doğal Türkçe kullan. Emojisiz yaz.`;
+    try {
+      const result = await this.model.generateContent(prompt);
+      return result.response.text();
+    } catch (error) {
+      console.error("[Senara AI] Dolap eşleştirme hatası:", error);
+      return "Dolabınızda bu üründen bulunmuyor, bu yüzden gerçekten ihtiyacınız olabilir!";
+    }
   }
 }
 
@@ -117,7 +186,6 @@ function extractJson(text) {
 }
 
 /* ── Lokal Türkçe intent parser ───────────────────────────── */
-
 const COLORS = [
   "siyah", "beyaz", "kırmızı", "mavi", "yeşil", "sarı",
   "turuncu", "mor", "pembe", "gri", "kahverengi", "lacivert",
@@ -143,26 +211,15 @@ const FILLER_WORDS = [
   "arıyorum", "bakıyorum", "alayım", "alırım",
 ];
 
-/**
- * Kullanıcı cümlesinden arama sorgusu ve filtreleri çıkarır.
- * Gemini/io.net API çağrısı yapmadan, lokal regex ile çalışır.
- *
- * Örnekler:
- *   "200 liradan ucuz eşofman" → { query: "eşofman", filters: { maxPrice: 200 } }
- *   "siyah M beden tişört bul" → { query: "tişört", filters: { color: "siyah", size: "M" } }
- *   "eşofman arar mısın"      → { query: "eşofman", filters: {} }
- */
 function localParseIntent(userText) {
   const lower = userText.toLowerCase().trim();
   const filters = { color: null, size: null, maxPrice: null };
 
-  // Fiyat çıkar
   const priceMatch = lower.match(/(\d+)\s*(lira|tl|₺)/);
   if (priceMatch) {
     filters.maxPrice = parseInt(priceMatch[1], 10);
   }
 
-  // Renk çıkar
   for (const color of COLORS) {
     if (lower.includes(color)) {
       filters.color = color;
@@ -170,7 +227,6 @@ function localParseIntent(userText) {
     }
   }
 
-  // Beden çıkar
   for (const size of SIZES) {
     const re = new RegExp(`\\b${size}\\b`, "i");
     if (re.test(lower)) {
@@ -179,7 +235,6 @@ function localParseIntent(userText) {
     }
   }
 
-  // Sorguyu temizle
   let query = lower;
   query = query.replace(/(\d+)\s*(lira|tl|₺)(dan|den)?\s*(ucuz|altı|altında)?/gi, "");
   if (filters.color) query = query.replace(new RegExp(filters.color, "gi"), "");
@@ -192,25 +247,14 @@ function localParseIntent(userText) {
   }
   query = query.replace(/[?.!,]/g, "").replace(/\s+/g, " ").trim();
 
-  // Türkçe ek kaldırma (basit stemming)
-  // "eşofmanı" → "eşofman", "tişörtü" → "tişört", "pantolonu" → "pantolon"
   query = query.split(" ").map(turkishStem).join(" ").trim();
-
   if (!query) query = userText.trim();
-
   return { query, filters };
 }
 
-/**
- * Basit Türkçe kök bulma — arama sorgusundaki ekleri kaldırır.
- * Tam morfolojik analiz değil, yaygın isim hallerini temizler.
- */
 function turkishStem(word) {
   if (word.length < 4) return word;
-
-  // Sıralama önemli: uzun ekler önce kontrol edilmeli
   const suffixes = [
-    // Hal ekleri (accusative, dative, locative, ablative)
     "ları", "leri", "ını", "ini", "unu", "ünü",
     "nın", "nin", "nun", "nün",
     "dan", "den", "tan", "ten",
@@ -219,12 +263,10 @@ function turkishStem(word) {
     "nı", "ni", "nu", "nü",
     "ı", "i", "u", "ü",
   ];
-
   for (const suffix of suffixes) {
     if (word.endsWith(suffix) && word.length - suffix.length >= 3) {
       return word.slice(0, -suffix.length);
     }
   }
-
   return word;
 }

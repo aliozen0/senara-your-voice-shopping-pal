@@ -1,8 +1,8 @@
 // Tüm uygulama konfigürasyonu buradan okunur.
 // Kod içinde hardcoded değer kullanmayın.
 
-export const IO_API_KEY = import.meta.env.VITE_IO_API_KEY ?? "";
-export const GEMINI_API_KEY = IO_API_KEY; // Geriye dönük uyumluluk
+export const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY ?? import.meta.env.VITE_IO_API_KEY ?? "";
+export const IO_API_KEY = GEMINI_API_KEY; // Geriye dönük uyumluluk
 export const USE_MOCK = (import.meta.env.VITE_USE_MOCK ?? "true") === "true";
 
 export const SUPPORTED_SITES = ["trendyol", "hepsiburada", "n11", "amazon"];
@@ -11,7 +11,7 @@ export const SPEECH_LANG = "tr-TR";
 
 export const TIMEOUTS = {
   listeningMs: 10000,
-  responseMs: 15000,
+  responseMs: 60000,
 };
 
 export const STORAGE_KEYS = {
