@@ -44,18 +44,18 @@ export class WebSpeechService extends SpeechServiceInterface {
 
   // ── LISTENING ──
 
-  startListening(onResult, onError) {
+  startListening(onResult, onError, onEnd) {
     if (this._isExtension) {
-      this._startListeningExtension(onResult, onError);
+      this._startListeningExtension(onResult, onError, onEnd);
     } else {
-      this._startListeningDirect(onResult, onError);
+      this._startListeningDirect(onResult, onError, onEnd);
     }
   }
 
   /**
    * Extension modu: background.js'e mesaj gönder → aktif tab'a inject eder
    */
-  _startListeningExtension(onResult, onError) {
+  _startListeningExtension(onResult, onError, onEnd) {
     this._listening = true;
 
     chrome.runtime.sendMessage({ type: "START_LISTENING" }, (response) => {
@@ -64,12 +64,14 @@ export class WebSpeechService extends SpeechServiceInterface {
       if (chrome.runtime.lastError) {
         console.error("[Senara] Background hatası:", chrome.runtime.lastError);
         onError?.(new Error("background-error"));
+        onEnd?.();
         return;
       }
 
       if (response?.error) {
         console.error("[Senara] Recognition hatası:", response.error);
         onError?.(new Error(response.error));
+        onEnd?.();
         return;
       }
 
@@ -79,13 +81,14 @@ export class WebSpeechService extends SpeechServiceInterface {
       } else {
         onError?.(new Error("no-speech"));
       }
+      onEnd?.();
     });
   }
 
   /**
    * Normal mod: doğrudan SpeechRecognition kullan
    */
-  _startListeningDirect(onResult, onError) {
+  _startListeningDirect(onResult, onError, onEnd) {
     if (typeof window === "undefined") return;
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -114,6 +117,7 @@ export class WebSpeechService extends SpeechServiceInterface {
 
     recognition.onend = () => {
       this._listening = false;
+      onEnd?.();
     };
 
     this._recognition = recognition;

@@ -11,6 +11,7 @@ import { ConversationHistory } from "../conversation/ConversationHistory.jsx";
 import { ErrorMessage } from "../ui/ErrorMessage.jsx";
 import { AccessibleButton } from "../ui/AccessibleButton.jsx";
 import { WardrobeService } from "../../services/wardrobe/WardrobeService.js";
+import { CartService } from "../../services/cart/CartService.js";
 import { STRINGS } from "../../config/index.js";
 
 export function SidePanel() {
@@ -18,6 +19,14 @@ export function SidePanel() {
   const greetedRef = useRef(false);
   const [showWardrobe, setShowWardrobe] = useState(false);
   const [wardrobeItems, setWardrobeItems] = useState([]);
+  const [showCart, setShowCart] = useState(false);
+  const [cartItems, setCartItems] = useState([]);
+
+  // Sepet ve Dolap güncellemelerini localStorage'dan dinle veya her renderda güncelle
+  useEffect(() => {
+    setCartItems(CartService.getAll());
+    setWardrobeItems(WardrobeService.getAll());
+  }, [v.phase, v.selectedProduct]);
 
   // Sayfa açılınca sesli karşılama yap (bir kez).
   // Kullanıcı mikrofona basarsa speechSynthesis.cancel() ile kesilir.
@@ -74,7 +83,18 @@ export function SidePanel() {
             }}
             className="min-h-[44px] px-4 text-base"
           >
-            👗 Dolabım ({WardrobeService.getAll().length})
+            👗 Dolabım ({wardrobeItems.length})
+          </AccessibleButton>
+          <AccessibleButton
+            ariaLabel="Alışveriş listemi göster"
+            variant="ghost"
+            onClick={() => {
+              setCartItems(CartService.getAll());
+              setShowCart(!showCart);
+            }}
+            className="min-h-[44px] px-4 text-base"
+          >
+            📝 Alışveriş Listem ({cartItems.length})
           </AccessibleButton>
           {v.isSpeaking && (
             <AccessibleButton
@@ -164,6 +184,15 @@ export function SidePanel() {
               {v.phase === "product_detail" && (
                 <>
                   <AccessibleButton
+                    ariaLabel="Alışveriş listeme ekle"
+                    onClick={() => {
+                      v.handleUserInput("alışveriş listeme ekle");
+                    }}
+                    className="min-h-[44px] px-4 text-base bg-[color:var(--primary)] text-[color:var(--primary-foreground)]"
+                  >
+                    📝 Alışveriş Listeme Ekle
+                  </AccessibleButton>
+                  <AccessibleButton
                     ariaLabel="Fiyat karşılaştırması yap"
                     onClick={() => v.runCompare(v.selectedProduct)}
                   >
@@ -172,12 +201,7 @@ export function SidePanel() {
                   <AccessibleButton
                     ariaLabel="Dolabıma ekle"
                     onClick={() => {
-                      const added = WardrobeService.add(v.selectedProduct);
-                      if (added) {
-                        v.handleUserInput("dolabıma ekle");
-                      } else {
-                        alert("Bu ürün zaten dolabınızda!");
-                      }
+                      v.handleUserInput("dolabıma ekle");
                     }}
                     className="min-h-[44px] px-4 text-base bg-[color:var(--secondary)]"
                   >
@@ -286,6 +310,87 @@ export function SidePanel() {
                 Temizle
               </AccessibleButton>
             </div>
+          )}
+        </section>
+      )}
+
+      {/* ── ALİŞVERİŞ LİSTESİ BÖLÜMÜ ── */}
+      {showCart && (
+        <section
+          aria-label="Alışveriş Listesi"
+          className="rounded-2xl border border-[color:var(--border)] bg-[color:var(--card)] p-4 flex flex-col gap-3"
+        >
+          <h2 className="text-xl font-bold text-[color:var(--foreground)]">📝 Alışveriş Listem</h2>
+          {cartItems.length === 0 ? (
+            <p className="text-base text-[color:var(--muted-foreground)]">
+              Alışveriş listeniz şu an boş. Ürünleri sesle "listeye ekle" diyerek veya yukarıdaki butondan ekleyebilirsiniz.
+            </p>
+          ) : (
+            <>
+              <ul className="space-y-2">
+                {cartItems.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--border)] p-3 bg-[color:var(--background)]"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {item.imageUrl && (
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          className="h-12 w-12 rounded-lg object-cover flex-shrink-0"
+                        />
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-[color:var(--foreground)] truncate">
+                          {item.name}
+                        </p>
+                        <p className="text-xs text-[color:var(--muted-foreground)]">
+                          {item.price} {item.currency}
+                        </p>
+                      </div>
+                    </div>
+                    <AccessibleButton
+                      ariaLabel={`${item.name} ürününü listeden çıkar`}
+                      variant="ghost"
+                      onClick={() => {
+                        CartService.remove(item.id);
+                        setCartItems(CartService.getAll());
+                      }}
+                      className="text-sm px-2 min-h-[36px] text-red-400 hover:text-red-300"
+                    >
+                      ✕
+                    </AccessibleButton>
+                  </li>
+                ))}
+              </ul>
+              <div className="flex items-center justify-between border-t border-[color:var(--border)] pt-3">
+                <span className="text-base font-medium text-[color:var(--foreground)]">Toplam Tutar:</span>
+                <span className="text-lg font-bold text-[color:var(--primary)]">
+                  {cartItems.reduce((acc, curr) => acc + (Number(curr.price) || 0), 0)} TL
+                </span>
+              </div>
+              <div className="flex gap-2 mt-2">
+                <AccessibleButton
+                  ariaLabel="Siparişi tamamla"
+                  onClick={() => v.handleUserInput("satın al")}
+                  className="flex-1"
+                >
+                  💳 Siparişi Tamamla
+                </AccessibleButton>
+                <AccessibleButton
+                  ariaLabel="Listeyi temizle"
+                  variant="ghost"
+                  onClick={() => {
+                    CartService.clear();
+                    setCartItems([]);
+                  }}
+                  className="text-sm text-red-400"
+                >
+                  Temizle
+                </AccessibleButton>
+              </div>
+            </>
           )}
         </section>
       )}

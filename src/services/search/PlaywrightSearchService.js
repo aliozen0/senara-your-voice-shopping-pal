@@ -10,7 +10,10 @@ export class PlaywrightSearchService extends SearchServiceInterface {
   async searchProducts(query, filters = {}) {
     try {
       let searchQuery = query;
-      if (filters.color) searchQuery = `${filters.color} ${searchQuery}`;
+      // Renk zaten sorguda yoksa ekle (tekrarı engelle)
+      if (filters.color && !searchQuery.toLowerCase().includes(filters.color.toLowerCase())) {
+        searchQuery = `${filters.color} ${searchQuery}`;
+      }
       if (filters.size) searchQuery = `${searchQuery} ${filters.size} beden`;
 
       // TanStack Start RPC (server function) çağrısı

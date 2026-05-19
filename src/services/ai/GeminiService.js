@@ -159,23 +159,23 @@ Bu ürünle dolaptaki hangi parçaları kombinleyebileceğini kısa ve samimi bi
    * selectProduct sırasında otomatik çağrılır.
    */
   async matchWithWardrobe(productName, wardrobeItems) {
-    if (!wardrobeItems || wardrobeItems.length === 0) return "";
+    if (!wardrobeItems || wardrobeItems.trim().length === 0 || wardrobeItems.includes("boş")) {
+      return "Dolabınızda benzer hiçbir ürün bulunmuyor. Gardırobunuzu zenginleştirmek için bu ürüne gerçekten ihtiyacınız olabilir!";
+    }
     const prompt = `Sen Senara adlı akıllı bir moda asistanısın. 
 Kullanıcı şu ürünü inceliyor: "${productName}".
 Dolabındaki mevcut kıyafetler: ${wardrobeItems}.
 
 Şunları yap:
 1. Bu yeni ürünün dolaptaki hangi kıyafetlerle RENK ve STİL açısından uyumlu olduğunu belirt (örn: "Mor ile beyaz harika gider, beyaz tişörtünle mükemmel olur").
-2. Dolabında eksik olan bir parça varsa onu öner (örn: "Zaten 2 tane pantolon var, bir etek de ekleyebilirsin").
-3. Uyumsuz olacak parçaları nazikçe belirt.
-
-Cevabın KISA ve SAMİMİ olsun (maksimum 3-4 cümle). Sesli okunacağı için doğal Türkçe kullan. Emojisiz yaz.`;
+2. Dolabında eksik olan bir parça varsa onu öner. Eğer bu kategoriden hiç ürün yoksa "Dolabınızda bu üründen bulunmuyor, bu yüzden gerçekten ihtiyacınız olabilir!" diye belirt.
+3. Cevabın KISA ve SAMİMİ olsun (maksimum 3-4 cümle). Sesli okunacağı için doğal Türkçe kullan. Emojisiz yaz.`;
     try {
       const result = await this.model.generateContent(prompt);
       return result.response.text();
     } catch (error) {
       console.error("[Senara AI] Dolap eşleştirme hatası:", error);
-      return "";
+      return "Dolabınızda bu üründen bulunmuyor, bu yüzden gerçekten ihtiyacınız olabilir!";
     }
   }
 }

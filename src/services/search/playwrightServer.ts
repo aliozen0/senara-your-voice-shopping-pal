@@ -99,12 +99,27 @@ export const scrapeTrendyol = createServerFn({ method: "GET" })
               }
               if (!title) title = el.getAttribute("title") || "Trendyol Ürünü";
               
+              // Marka çıkarma: Trendyol başlıkları genelde "MARKA Ürün Adı" formatında
+              let brand = "";
+              const titleParts = title.split(" ");
+              if (titleParts.length > 1) {
+                // İlk kelime büyük harflerden oluşuyorsa marka
+                const firstWord = titleParts[0];
+                if (firstWord === firstWord.toUpperCase() && firstWord.length > 1) {
+                  brand = firstWord;
+                } else {
+                  // İlk 2 kelimeye bak
+                  brand = titleParts.slice(0, 2).join(" ");
+                }
+              }
+              
               const imageUrl = img.getAttribute("src") || img.getAttribute("data-src") || "";
               const productUrl = href.startsWith("http") ? href : `https://www.trendyol.com${href}`;
               
               results.push({
                 id: `ty-${Date.now()}-${results.length}`,
                 name: title.substring(0, 100),
+                brand: brand,
                 price: price,
                 currency: "TL",
                 imageUrl: imageUrl,
