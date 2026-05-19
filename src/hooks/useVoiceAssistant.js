@@ -213,14 +213,25 @@ export function useVoiceAssistant() {
       try {
         setSelectedProduct(product);
         setPhase("product_detail");
-        say("Ürünü inceliyorum...", false);
-        const [imgDesc, reviewSet] = await Promise.all([
+        say("Ürünü inceliyorum ve dolabınızla karşılaştırıyorum...", false);
+        
+        const wardrobeContext = WardrobeService.buildWardrobeContext();
+        
+        const [imgDesc, reviewSet, wardrobeMatch] = await Promise.all([
           ai.analyzeImage(product.imageUrl),
           ai.analyzeReviews(MockSearchService.getMockReviews?.() ?? []),
+          wardrobeContext ? ai.matchWithWardrobe(product.name, wardrobeContext) : Promise.resolve(""),
         ]);
         setImageDescription(imgDesc);
         setReviewAnalysis(reviewSet);
-        const text = buildProductDetailSummary(product, imgDesc, reviewSet);
+        
+        let text = buildProductDetailSummary(product, imgDesc, reviewSet);
+        
+        // Dolap uyumu varsa ekle
+        if (wardrobeMatch) {
+          text += ` Dolabınızla uyum analizi: ${wardrobeMatch}`;
+        }
+        
         say(text, true);
       } catch (e) {
         console.error(e);

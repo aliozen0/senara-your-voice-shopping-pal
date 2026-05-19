@@ -4,14 +4,96 @@
  * listeyi sesli okur ve Gemini ile kombin önerir.
  */
 const STORAGE_KEY = "senara_wardrobe";
+const SEEDED_KEY = "senara_wardrobe_seeded";
+
+/**
+ * Demo karakter: Merve'nin dolabı.
+ * İlk kullanımda otomatik olarak yüklenir.
+ */
+const DEMO_WARDROBE = [
+  {
+    id: "demo-1",
+    name: "Siyah Yüksek Bel Skinny Jean Pantolon",
+    price: 349,
+    currency: "TL",
+    imageUrl: "",
+    category: "alt",
+    color: "siyah",
+  },
+  {
+    id: "demo-2",
+    name: "Beyaz Basic Oversize Pamuklu Tişört",
+    price: 199,
+    currency: "TL",
+    imageUrl: "",
+    category: "üst",
+    color: "beyaz",
+  },
+  {
+    id: "demo-3",
+    name: "Lacivert Blazer Ceket Slim Fit",
+    price: 899,
+    currency: "TL",
+    imageUrl: "",
+    category: "üst",
+    color: "lacivert",
+  },
+  {
+    id: "demo-4",
+    name: "Bej Keten Palazzo Pantolon",
+    price: 459,
+    currency: "TL",
+    imageUrl: "",
+    category: "alt",
+    color: "bej",
+  },
+  {
+    id: "demo-5",
+    name: "Kırmızı V Yaka Triko Kazak",
+    price: 329,
+    currency: "TL",
+    imageUrl: "",
+    category: "üst",
+    color: "kırmızı",
+  },
+  {
+    id: "demo-6",
+    name: "Siyah Deri Bağcıklı Sneaker Ayakkabı",
+    price: 699,
+    currency: "TL",
+    imageUrl: "",
+    category: "ayakkabı",
+    color: "siyah",
+  },
+  {
+    id: "demo-7",
+    name: "Kahverengi Deri Omuz Çantası",
+    price: 549,
+    currency: "TL",
+    imageUrl: "",
+    category: "aksesuar",
+    color: "kahverengi",
+  },
+];
 
 export class WardrobeService {
+  /**
+   * İlk kullanımda demo dolabı yükler.
+   */
+  static ensureSeeded() {
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem(SEEDED_KEY)) return; // Zaten yüklendi
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(DEMO_WARDROBE));
+    localStorage.setItem(SEEDED_KEY, "true");
+  }
+
   /**
    * Dolaptaki tüm kıyafetleri getirir.
    * @returns {Array} Kayıtlı ürün listesi
    */
   static getAll() {
     if (typeof window === "undefined") return [];
+    WardrobeService.ensureSeeded();
     try {
       return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
     } catch {
