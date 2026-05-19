@@ -392,14 +392,34 @@ Tüm renkler `src/styles.css` içindeki `oklch` token'larıyla tanımlı. Hiçbi
 
 ## 13. Chrome Extension'a Taşıma Yol Haritası
 
-Bu uygulama Chrome Extension Side Panel API'sine taşınmak üzere tasarlandı. Adımlar:
+Bu uygulama Chrome Extension Side Panel API'sine taşınmak üzere tasarlandı.
 
-1. **`manifest.json`** ekle (Manifest V3): `"side_panel": { "default_path": "index.html" }`, `permissions: ["sidePanel", "activeTab", "scripting", "storage"]`.
-2. **Build çıktısını** `dist/` olarak paketle (`bun run build`).
-3. **Content script** ekle → her destekli sitede çalışsın, `chrome.runtime.onMessage` ile `SEARCH_PRODUCTS / GET_PRODUCT_DETAIL / COMPARE_PRICE` mesajlarına cevap versin.
-4. **Background service worker** → side panel'i açar/kapatır.
-5. **`VITE_USE_MOCK=false`** yap, `ExtensionSearchService` otomatik devreye girer.
-6. **Adapter'lardaki DOM selector'larını** gerçek site HTML'ine göre doldur.
+### ✅ Tamamlanan Adımlar
+
+1. **✅ `manifest.json`** — Manifest V3, side panel, background service worker, content scripts, permissions ve host_permissions tanımlandı.
+2. **✅ `background.js`** — Service worker: ikon → side panel açma, tab URL değişim izleme, mesaj iletimi (side panel ↔ content script).
+3. **✅ Content scripts** — `content_scripts/` klasöründe:
+   - `injector.js` — Ana content script. Tüm sitelerde çalışır, inline adapter'larla DOM parse yapar.
+   - `trendyol.js` — Trendyol SPA navigasyon izleme (MutationObserver + history override).
+   - `hepsiburada.js` — Hepsiburada SPA navigasyon izleme.
+   - `n11.js` — N11 SPA navigasyon izleme.
+4. **✅ Vite build konfigürasyonu** — `vite.config.extension.ts` eklendi (IIFE format, content script uyumlu).
+5. **✅ `package.json`** — `"build:extension"` script'i eklendi.
+6. **✅ `.env.example`** — `VITE_USE_MOCK=false` şablonu eklendi.
+
+### DOM Selector Bilgileri
+
+| Site | Ürün Adı | Fiyat | Resim | Puan |
+| --- | --- | --- | --- | --- |
+| Trendyol | `[data-drroot] h1`, `.pr-new-br span` | `.prc-dsc`, `.prc-slg` | `.base-product-image img` | `.rnr-cm-rvw span` |
+| Hepsiburada | `h1.product-name`, `[data-bind="text: name"]` | `.product-price .price` | `.product-image img` | `.ratings .rating` |
+| N11 | `.proName h1` | `.newPrice ins` | `#productMainPicture img` | `.ratingCont .ratingScore` |
+
+### Kalan Adımlar
+
+- [ ] `VITE_USE_MOCK=false` yaparak `ExtensionSearchService`'i devreye al
+- [ ] `bun run build:extension` ile build al ve `chrome://extensions` üzerinden test et
+- [ ] Gerçek site HTML'lerine göre selector'ları güncelleyebilirsin (siteler DOM'u sık değiştirir)
 
 UI tarafında **hiçbir değişiklik gerekmez**.
 
@@ -408,7 +428,8 @@ UI tarafında **hiçbir değişiklik gerekmez**.
 ## 14. Bilinen Sınırlamalar
 
 - **Web Speech API yalnız Chromium**'da var. Safari/Firefox kısmen veya hiç desteklemez. Mock mod bağımsız çalışır ama sesli giriş olmaz.
-- **Gerçek site DOM parse'ı henüz yok** — `*Adapter.js` dosyaları iskelet halinde. Extension'a paketlerken doldurulacak.
+- **DOM selector'lar güncellenebilir** — E-ticaret siteleri sık DOM değişikliği yapar. `content_scripts/injector.js` içindeki selector'lar güncel tutulmalıdır.
+- **Content script'lerde CORS kısıtı** — `fetch` ile farklı site aramak (fiyat karşılaştırma) CORS nedeniyle başarısız olabilir. Bu durumda `background.js`'e fetch proxy'si eklenebilir.
 - **Gemini API key client'ta** kalırsa ayıklanabilir. Üretimde server proxy şart.
 - **Niyet ayrıştırma (mock)** regex tabanlı, sınırlıdır. Gerçek modda Gemini çok daha doğru sonuç verir.
 - **Sepet/ödeme entegrasyonu yok** — şu an sadece mağaza linkine yönlendiriyoruz. Otomatik sepete ekleme her sitenin login/CSRF politikasına özel iş gerektirir.

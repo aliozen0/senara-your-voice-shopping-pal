@@ -1,0 +1,69 @@
+{
+  "name": "Senara",
+  "version": "1.0.0",
+  "description": "Görme engelliler için sesli e-ticaret asistanı",
+  "manifest_version": 3,
+
+  "action": {
+    "default_title": "Senara'yı Aç"
+  },
+
+  "side_panel": {
+    "default_path": "index.html"
+  },
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "https://www.trendyol.com/*",
+    "https://www.hepsiburada.com/*",
+    "https://www.n11.com/*",
+    "https://www.amazon.com.tr/*"
+  ],
+
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.trendyol.com/*",
+        "https://www.hepsiburada.com/*",
+        "https://www.n11.com/*",
+        "https://www.amazon.com.tr/*"
+      ],
+      "js": ["content_scripts/injector.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.trendyol.com/*"],
+      "js": ["content_scripts/trendyol.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.hepsiburada.com/*"],
+      "js": ["content_scripts/hepsiburada.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.n11.com/*"],
+      "js": ["content_scripts/n11.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "web_accessible_resources": [
+    {
+      "resources": ["index.html"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
